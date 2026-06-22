@@ -1,0 +1,136 @@
+version: 2.1
+
+# Branch behavior (spec §3):
+#   push to main              -> lint, test, build
+#   push to deploy/production -> lint, test, build, deliver, deploy, e2e
+#
+# Required env vars (Project Settings -> Environment Variables):
+#   SNYK_TOKEN, SONAR_HOST_URL, SONAR_TOKEN,
+#   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN,
+#   STAGING_API_URL,
+#   SLACK_WEBHOOK_URL (optional)
+
+commands:
+  notify_on_fail:
+    steps:
+      - run:
+          name: Notify on failure
+          when: on_fail
+          command: |
+            if [ -n "$SLACK_WEBHOOK_URL" ]; then
+              curl -s -X POST -H 'Content-type: application/json' \
+                --data "{\"text\":\"❌ ${CIRCLE_JOB} failed on ${CIRCLE_BRANCH} — ${CIRCLE_BUILD_URL}\"}" \
+                "$SLACK_WEBHOOK_URL"
+            fi
+
+executors:
+  node:
+    docker:
+      - image: cimg/node:22.11
+
+jobs:
+  lint:
+    executor: node
+    steps:
+      - checkout
+      - run:
+          name: Snyk dependency scan
+          command: |
+            npx snyk auth "$SNYK_TOKEN"
+            npx snyk test --severity-threshold=high
+      - setup_remote_docker
+      - run:
+          name: SonarQube scan
+          command: |
+            docker run --rm \
+              -e SONAR_HOST_URL="$SONAR_HOST_URL" -e SONAR_TOKEN="$SONAR_TOKEN" \
+              -v "$(pwd)":/usr/src sonarsource/sonar-scanner-cli
+      - notify_on_fail
+
+  test:
+    executor: node
+    steps:
+      - checkout
+      - run:
+          name: Install deps
+          command: npm ci
+      - run:
+          name: Run Jest suite
+          command: |
+            # TODO §3: add Jest config + >=10 tests (deferred on purpose).
+            npm test -- --coverage
+      - store_test_results:
+          path: coverage
+      - notify_on_fail
+
+  build:
+    executor: node
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Build image
+          command: |
+            docker build -t secret-notes-frontend:"$CIRCLE_SHA1" \
+              --build-arg VITE_API_URL="$STAGING_API_URL" .
+            docker save secret-notes-frontend:"$CIRCLE_SHA1" | gzip > frontend-image.tar.gz
+      - persist_to_workspace:
+          root: .
+          paths: [frontend-image.tar.gz]
+      - notify_on_fail
+
+  deliver:
+    executor: node
+    steps:
+      - attach_workspace: { at: . }
+      - setup_remote_docker
+      - run:
+          name: Push to Docker Hub
+          command: |
+            docker load < frontend-image.tar.gz
+            echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            docker tag secret-notes-frontend:"$CIRCLE_SHA1" "$DOCKERHUB_USERNAME"/secret-notes-frontend:"$CIRCLE_SHA1"
+            docker tag secret-notes-frontend:"$CIRCLE_SHA1" "$DOCKERHUB_USERNAME"/secret-notes-frontend:latest
+            docker push "$DOCKERHUB_USERNAME"/secret-notes-frontend:"$CIRCLE_SHA1"
+            docker push "$DOCKERHUB_USERNAME"/secret-notes-frontend:latest
+      - notify_on_fail
+
+  deploy:
+    executor: node
+    steps:
+      - checkout
+      - run:
+          name: Deploy to staging (Blue/Green)
+          command: echo "TODO §8: provision AWS EC2 staging + blue/green swap script."
+      - notify_on_fail
+
+  e2e:
+    executor: node
+    steps:
+      - checkout
+      - run:
+          name: E2E + performance against staging
+          command: |
+            echo "TODO: run Playwright + k6 against the staging environment."
+            echo "On success, trigger the Blue/Green traffic switch from the Deploy stage."
+      - notify_on_fail
+
+workflows:
+  ci:
+    when:
+      equal: [main, << pipeline.git.branch >>]
+    jobs: [lint, test, build]
+
+  cd:
+    when:
+      equal: ["deploy/production", << pipeline.git.branch >>]
+    jobs:
+      - lint
+      - test
+      - build
+      - deliver:
+          requires: [build]
+      - deploy:
+          requires: [deliver]
+      - e2e:
+          requires: [deploy]
