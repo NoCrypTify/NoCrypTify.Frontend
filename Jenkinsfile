@@ -3,7 +3,6 @@ pipeline {
 
   tools {
     nodejs 'NodeJS-20' 
-    sonarRunner 'SonarScanner' 
   }
 
   environment {
@@ -13,6 +12,8 @@ pipeline {
     SONAR_TOKEN = credentials('sonarqube-token')
     SNYK_TOKEN = credentials('snyk-token')
     DISCORD_WEBHOOK = credentials('discord-webhook-url')
+
+    SCANNER_HOME = tool 'SonarScanner'
   }
 
   stages {
@@ -25,8 +26,7 @@ pipeline {
       }
       steps {
         sh 'npx snyk auth "$SNYK_TOKEN" && npx snyk test --severity-threshold=high'
-        // $SONAR_HOST_URL wird jetzt aus den globalen Jenkins-Einstellungen gezogen
-        sh 'sonar-scanner -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.login="$SONAR_TOKEN"'
+        sh '"$SCANNER_HOME/bin/sonar-scanner" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.login="$SONAR_TOKEN"'
       }
     }
 
