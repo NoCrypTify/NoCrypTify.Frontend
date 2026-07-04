@@ -8,10 +8,12 @@ pipeline {
   environment {
     IMAGE_NAME = 'secret-notes-frontend'
     
+    
     DOCKERHUB_CREDENTIALS = credentials('dockerhub')
     SONAR_TOKEN = credentials('sonarqube-token')
     SNYK_TOKEN = credentials('snyk-token')
     DISCORD_WEBHOOK = credentials('discord-webhook-url')
+    
 
     SCANNER_HOME = tool 'SonarScanner'
   }
