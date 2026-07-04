@@ -32,7 +32,7 @@ pipeline {
       }
       steps {
         sh 'npx snyk auth "$SNYK_TOKEN" && npx snyk test --severity-threshold=high'
-        sh '"$SCANNER_HOME/bin/sonar-scanner" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.token="$SONAR_TOKEN"
+        sh '"$SCANNER_HOME/bin/sonar-scanner" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.token="$SONAR_TOKEN"'
       }
     }
 
@@ -79,8 +79,6 @@ pipeline {
       steps {
         sshagent(credentials: ['app-ec2-ssh-key']) {
           sh '''
-            # Wir nutzen jetzt STAGING_EC2_USER und STAGING_EC2_HOST, 
-            # welche aus den Jenkins Global Properties kommen.
             ACTIVE_BLUE=$(ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "docker ps -q -f name=frontend-blue | wc -l")
 
             if [ "$ACTIVE_BLUE" -eq "1" ]; then
@@ -113,7 +111,7 @@ pipeline {
     stage('E2E & Switch Traffic') {
       when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
-        sshagent(credentials: ['ec2-ssh-key']) {
+        sshagent(credentials: ['app-ec2-ssh-key']) {
           sh '''
             TARGET_ENV=$(cat target_env.txt)
             TARGET_PORT=$(cat target_port.txt)
@@ -124,28 +122,23 @@ pipeline {
               OLD_ENV="green"
             fi
 
-            echo "Running E2E tests against http://$EC2_HOST:$TARGET_PORT"
+            echo "Running E2E tests against http://$STAGING_EC2_HOST:$TARGET_PORT"
             
             # HIER KOMMEN DEINE TESTS REIN (Playwright/k6)
-            # Wichtig: Sie müssen gegen den TARGET_PORT laufen, da dieser noch nicht live ist!
-            # z.B.: npx playwright test --config=playwright.config.js
             
             echo "Tests successful! Switching traffic to $TARGET_ENV..."
 
-            # Traffic umschalten (Beispiel mit Nginx Symlinks)
-            ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_HOST "
-              # Nginx so konfigurieren, dass er auf den neuen Port zeigt
-              # Dies setzt voraus, dass du zwei vHost-Configs (frontend-blue und frontend-green) hast
+            ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "
               sudo ln -sf /etc/nginx/sites-available/frontend-$TARGET_ENV /etc/nginx/sites-enabled/frontend
               sudo systemctl reload nginx
 
-              # Altes Environment stoppen, um Ressourcen zu sparen (optional)
               docker stop frontend-$OLD_ENV || true
             "
           '''
         }
       }
     }
+  }
 
   post {
     failure {
@@ -160,4 +153,3 @@ pipeline {
     }
   }
 }
-
