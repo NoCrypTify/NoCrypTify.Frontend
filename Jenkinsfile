@@ -1,26 +1,29 @@
-// Self-hosted CI/CD pipeline for the frontend (Jenkins on AWS EC2).
-//
-// Prerequisites on the Jenkins agent: Node 22, Docker, sonar-scanner CLI, snyk CLI.
-// Set up as a Multibranch Pipeline job pointed at the GitHub repo (webhook-triggered)
-// so `BRANCH_NAME` / `when { branch }` resolve correctly.
-//
-// Required Jenkins credentials: dockerhub-credentials (username/password),
-// sonar-token (secret text), snyk-token (secret text).
-// Required env on the controller/agent: SONAR_HOST_URL, STAGING_API_URL, SLACK_WEBHOOK_URL (optional).
-//
-// Branch behavior (spec §3): main -> Lint/Test/Build only; deploy/production -> all stages.
 pipeline {
   agent any
 
   environment {
     IMAGE_NAME = 'secret-notes-frontend'
-    DOCKERHUB_CREDENTIALS = credentials('dockerhub-credentials')
-    SONAR_TOKEN = credentials('sonar-token')
+    
+    // Credentials
+    DOCKERHUB_CREDENTIALS = credentials('dockerhub')
+    SONAR_TOKEN = credentials('sonarqube-token')
     SNYK_TOKEN = credentials('snyk-token')
+    DISCORD_WEBHOOK = credentials('discord-webhook-url')
+    
+    // Config Variables (Passend ersetzen!)
+    SONAR_HOST_URL = 'http://dein-sonarqube-server:9000'
+    STAGING_API_URL = 'https://staging.deine-api.com'
   }
 
   stages {
     stage('Lint') {
+      // Läuft nur auf main ODER deploy/production
+      when {
+        anyOf {
+          branch 'main'
+          branch 'deploy/production'
+        }
+      }
       steps {
         sh 'npx snyk auth "$SNYK_TOKEN" && npx snyk test --severity-threshold=high'
         sh 'sonar-scanner -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.login="$SONAR_TOKEN"'
@@ -28,16 +31,29 @@ pipeline {
     }
 
     stage('Test') {
+      when {
+        anyOf {
+          branch 'main'
+          branch 'deploy/production'
+        }
+      }
       steps {
         sh 'npm ci'
-        // TODO §3: add Jest config + >=10 tests (deferred on purpose).
+        // TODO §3: add Jest config + >=10 tests.
         sh 'npm test -- --coverage'
       }
     }
 
     stage('Build') {
+      when {
+        anyOf {
+          branch 'main'
+          branch 'deploy/production'
+        }
+      }
       steps {
-        sh "docker build -t ${IMAGE_NAME}:${env.GIT_COMMIT} --build-arg VITE_API_URL=\$STAGING_API_URL ."
+        // Build-Arg korrekt mit der Environment-Variable verknüpft
+        sh "docker build -t ${IMAGE_NAME}:${env.GIT_COMMIT} --build-arg VITE_API_URL=${STAGING_API_URL} ."
       }
     }
 
@@ -72,10 +88,11 @@ pipeline {
   post {
     failure {
       sh '''
-        if [ -n "$SLACK_WEBHOOK_URL" ]; then
-          curl -s -X POST -H "Content-type: application/json" \
-            --data "{\"text\":\"❌ ${JOB_NAME} #${BUILD_NUMBER} failed on ${BRANCH_NAME} — ${BUILD_URL}\"}" \
-            "$SLACK_WEBHOOK_URL"
+        if [ -n "$DISCORD_WEBHOOK" ]; then
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "{\\"content\\": \\"<@&1522970703245348995> ❌ **${JOB_NAME} #${BUILD_NUMBER}** failed on branch **${BRANCH_NAME}**!\\\\nDetails: ${BUILD_URL}\\"}" \
+            "$DISCORD_WEBHOOK"
         fi
       '''
     }
