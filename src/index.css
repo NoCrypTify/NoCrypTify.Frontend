@@ -140,6 +140,60 @@ button.ghost:hover {
   white-space: nowrap;
 }
 
+/* Theme B — alternate UI variant, toggled via PostHog flag "alternate-ui" */
+.theme-b {
+  color: #e5e7eb;
+}
+
+body:has(.theme-b) {
+  background: #111827;
+}
+
+.theme-b .card {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.theme-b input,
+.theme-b textarea {
+  background: #111827;
+  border-color: #4b5563;
+  color: #e5e7eb;
+}
+
+.theme-b button {
+  background: #059669;
+}
+
+.theme-b button:hover {
+  background: #047857;
+}
+
+.theme-b button.ghost {
+  background: none;
+  color: #34d399;
+}
+
+.theme-b .note-item {
+  background: #111827;
+  border-color: #374151;
+}
+
+.theme-b .note-item:hover {
+  border-color: #059669;
+  background: #064e3b;
+}
+
+.theme-b .muted,
+.theme-b .note-date {
+  color: #9ca3af;
+}
+
+.theme-b code,
+.theme-b pre {
+  background: #111827;
+}
+
 /* Modal */
 .overlay {
   position: fixed;
@@ -192,4 +246,16 @@ button.ghost:hover {
   border-radius: 8px;
   padding: 0.9rem;
   margin: 0;
+}
+
+.theme-b .modal {
+  background: #1f2937;
+}
+
+.theme-b .revealed {
+  background: #111827;
+}
+
+.theme-b .close:hover {
+  background: #374151;
 }

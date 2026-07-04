@@ -6,9 +6,13 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . .
-# VITE_API_URL is baked in at build time; override per environment.
+# Vite env vars are baked in at build time; override per environment.
 ARG VITE_API_URL
-ENV VITE_API_URL=$VITE_API_URL
+ARG VITE_POSTHOG_KEY
+ARG VITE_POSTHOG_HOST
+ENV VITE_API_URL=$VITE_API_URL \
+    VITE_POSTHOG_KEY=$VITE_POSTHOG_KEY \
+    VITE_POSTHOG_HOST=$VITE_POSTHOG_HOST
 RUN npm run build
 
 # --- Runtime stage: serve static files with nginx ---

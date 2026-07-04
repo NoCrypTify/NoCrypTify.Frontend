@@ -1,4 +1,5 @@
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+// optional chaining: import.meta.env only exists under Vite, not under Jest
+const API_URL = import.meta.env?.VITE_API_URL ?? 'http://localhost:3000';
 
 export interface CreatedNote {
   noteId: string;

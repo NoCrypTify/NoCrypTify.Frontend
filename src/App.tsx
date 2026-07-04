@@ -6,15 +6,22 @@ import {
   type CreatedNote,
   type RevealedNote,
 } from './api.ts';
+import { captureEvent, onAlternateUiFlag } from './posthog.ts';
 
 export default function App() {
   const [notes, setNotes] = useState<CreatedNote[]>([]);
   const [listError, setListError] = useState<string | null>(null);
+  const [alternateUi, setAlternateUi] = useState(false);
+
+  useEffect(() => {
+    onAlternateUiFlag(setAlternateUi);
+  }, []);
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [createKey, setCreateKey] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
+  const [createSuccess, setCreateSuccess] = useState(false);
 
   const [selected, setSelected] = useState<CreatedNote | null>(null);
 
@@ -34,11 +41,14 @@ export default function App() {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setCreateError(null);
+    setCreateSuccess(false);
     try {
       await createNote({ title, content, key: createKey });
       setTitle('');
       setContent('');
       setCreateKey('');
+      setCreateSuccess(true);
+      captureEvent('note_created', { ui_variant: alternateUi ? 'B' : 'A' });
       await refresh();
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Unknown error');
@@ -46,7 +56,7 @@ export default function App() {
   }
 
   return (
-    <main className="app">
+    <main className={alternateUi ? 'app theme-b' : 'app'}>
       <h1>🔒 Secret Notes</h1>
 
       <section className="card">
@@ -72,6 +82,7 @@ export default function App() {
           />
           <button type="submit">Create</button>
         </form>
+        {createSuccess && <p className="ok">Note created and stored securely.</p>}
         {createError && <p className="err">{createError}</p>}
       </section>
 
@@ -101,7 +112,11 @@ export default function App() {
       </section>
 
       {selected && (
-        <RevealModal note={selected} onClose={() => setSelected(null)} />
+        <RevealModal
+          note={selected}
+          uiVariant={alternateUi ? 'B' : 'A'}
+          onClose={() => setSelected(null)}
+        />
       )}
     </main>
   );
@@ -109,9 +124,11 @@ export default function App() {
 
 function RevealModal({
   note,
+  uiVariant,
   onClose,
 }: {
   note: CreatedNote;
+  uiVariant: 'A' | 'B';
   onClose: () => void;
 }) {
   const [key, setKey] = useState('');
@@ -125,7 +142,9 @@ function RevealModal({
     setLoading(true);
     try {
       setRevealed(await revealNote(note.noteId, key));
+      captureEvent('note_revealed', { ui_variant: uiVariant });
     } catch (err) {
+      captureEvent('note_reveal_failed', { ui_variant: uiVariant });
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setLoading(false);
