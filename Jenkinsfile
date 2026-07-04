@@ -51,7 +51,6 @@ pipeline {
         }
       }
       steps {
-        // $STAGING_API_URL wird ebenfalls global von Jenkins geladen
         sh "docker build -t ${IMAGE_NAME}:${env.GIT_COMMIT} --build-arg VITE_API_URL=${STAGING_API_URL} ."
       }
     }
