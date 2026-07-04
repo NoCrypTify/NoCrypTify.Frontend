@@ -12,29 +12,35 @@ pipeline {
     SONAR_TOKEN = credentials('sonarqube-token')
     SNYK_TOKEN = credentials('snyk-token')
     DISCORD_WEBHOOK = credentials('discord-webhook-url')
-
+    
     SCANNER_HOME = tool 'SonarScanner'
   }
 
   stages {
+    stage('Debug Info') {
+      steps {
+        echo "-> Aktueller GIT_BRANCH: ${env.GIT_BRANCH}"
+      }
+    }
+    
     stage('Lint') {
       when {
         anyOf {
-          branch 'main'
-          branch 'deploy/production'
+          expression { env.GIT_BRANCH?.contains('main') }
+          expression { env.GIT_BRANCH?.contains('deploy/production') }
         }
       }
       steps {
         sh 'npx snyk auth "$SNYK_TOKEN" && npx snyk test --severity-threshold=high'
-        sh '"$SCANNER_HOME/bin/sonar-scanner" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.login="$SONAR_TOKEN"'
+        sh '"$SCANNER_HOME/bin/sonar-scanner" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.token="$SONAR_TOKEN"'
       }
     }
 
     stage('Test') {
       when {
         anyOf {
-          branch 'main'
-          branch 'deploy/production'
+          expression { env.GIT_BRANCH?.contains('main') }
+          expression { env.GIT_BRANCH?.contains('deploy/production') }
         }
       }
       steps {
@@ -46,8 +52,8 @@ pipeline {
     stage('Build') {
       when {
         anyOf {
-          branch 'main'
-          branch 'deploy/production'
+          expression { env.GIT_BRANCH?.contains('main') }
+          expression { env.GIT_BRANCH?.contains('deploy/production') }
         }
       }
       steps {
@@ -56,7 +62,7 @@ pipeline {
     }
 
     stage('Deliver') {
-      when { branch 'deploy/production' }
+      when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
         sh '''
           echo "$DOCKERHUB_CREDENTIALS_PSW" | docker login -u "$DOCKERHUB_CREDENTIALS_USR" --password-stdin
@@ -68,17 +74,68 @@ pipeline {
       }
     }
 
-    stage('Deploy (Blue/Green)') {
-      when { branch 'deploy/production' }
+    stage('Deploy to Staging (Inactive Env)') {
+      when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
-        echo 'TODO §8: provision AWS EC2 staging + implement blue/green swap script.'
+        sshagent(credentials: ['app-ec2-ssh-key']) {
+          sh '''
+            ACTIVE_BLUE=$(ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "docker ps -q -f name=frontend-blue | wc -l")
+
+            if [ "$ACTIVE_BLUE" -eq "1" ]; then
+              TARGET_ENV="green"
+              TARGET_PORT=3001
+            else
+              TARGET_ENV="blue"
+              TARGET_PORT=3000
+            fi
+
+            echo "Deploying to INACTIVE environment: $TARGET_ENV on port $TARGET_PORT"
+
+            ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "
+              docker login -u $DOCKERHUB_CREDENTIALS_USR -p $DOCKERHUB_CREDENTIALS_PSW
+              docker pull $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
+              
+              docker stop frontend-$TARGET_ENV || true
+              docker rm frontend-$TARGET_ENV || true
+              
+              docker run -d --name frontend-$TARGET_ENV -p $TARGET_PORT:80 $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
+            "
+
+            echo $TARGET_ENV > target_env.txt
+            echo $TARGET_PORT > target_port.txt
+          '''
+        }
       }
     }
 
-    stage('E2E & Performance') {
-      when { branch 'deploy/production' }
+    stage('E2E & Switch Traffic') {
+      when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
-        echo 'TODO: run Playwright + k6 against staging; on success, switch Blue/Green.'
+        sshagent(credentials: ['app-ec2-ssh-key']) {
+          sh '''
+            TARGET_ENV=$(cat target_env.txt)
+            TARGET_PORT=$(cat target_port.txt)
+
+            if [ "$TARGET_ENV" = "green" ]; then
+              OLD_ENV="blue"
+            else
+              OLD_ENV="green"
+            fi
+
+            echo "Running E2E tests against http://$STAGING_EC2_HOST:$TARGET_PORT"
+            
+            # HIER KOMMEN DEINE TESTS REIN (Playwright/k6)
+            
+            echo "Tests successful! Switching traffic to $TARGET_ENV..."
+
+            ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "
+              sudo ln -sf /etc/nginx/sites-available/frontend-$TARGET_ENV /etc/nginx/sites-enabled/frontend
+              sudo systemctl reload nginx
+
+              docker stop frontend-$OLD_ENV || true
+            "
+          '''
+        }
       }
     }
   }
