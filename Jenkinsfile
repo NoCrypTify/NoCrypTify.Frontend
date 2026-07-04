@@ -1,23 +1,22 @@
 pipeline {
   agent any
 
+  tools {
+    nodejs 'NodeJS-20' 
+    sonar 'SonarScanner' 
+  }
+
   environment {
     IMAGE_NAME = 'secret-notes-frontend'
     
-    // Credentials
     DOCKERHUB_CREDENTIALS = credentials('dockerhub')
     SONAR_TOKEN = credentials('sonarqube-token')
     SNYK_TOKEN = credentials('snyk-token')
     DISCORD_WEBHOOK = credentials('discord-webhook-url')
-    
-    // Config Variables (Passend ersetzen!)
-    SONAR_HOST_URL = 'http://dein-sonarqube-server:9000'
-    STAGING_API_URL = 'https://staging.deine-api.com'
   }
 
   stages {
     stage('Lint') {
-      // Läuft nur auf main ODER deploy/production
       when {
         anyOf {
           branch 'main'
@@ -26,6 +25,7 @@ pipeline {
       }
       steps {
         sh 'npx snyk auth "$SNYK_TOKEN" && npx snyk test --severity-threshold=high'
+        // $SONAR_HOST_URL wird jetzt aus den globalen Jenkins-Einstellungen gezogen
         sh 'sonar-scanner -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.login="$SONAR_TOKEN"'
       }
     }
@@ -39,7 +39,6 @@ pipeline {
       }
       steps {
         sh 'npm ci'
-        // TODO §3: add Jest config + >=10 tests.
         sh 'npm test -- --coverage'
       }
     }
@@ -52,7 +51,7 @@ pipeline {
         }
       }
       steps {
-        // Build-Arg korrekt mit der Environment-Variable verknüpft
+        // $STAGING_API_URL wird ebenfalls global von Jenkins geladen
         sh "docker build -t ${IMAGE_NAME}:${env.GIT_COMMIT} --build-arg VITE_API_URL=${STAGING_API_URL} ."
       }
     }
