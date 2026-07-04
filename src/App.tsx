@@ -60,7 +60,7 @@ export default function App() {
       <h1>🔒 Secret Notes</h1>
 
       <section className="card">
-        <h2>Create a note</h2>
+        <h1>Create a note</h1>
         <form onSubmit={handleCreate}>
           <input
             placeholder="Title (optional)"
