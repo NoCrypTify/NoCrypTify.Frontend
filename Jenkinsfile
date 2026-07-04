@@ -16,6 +16,7 @@ pipeline {
     
 
     SCANNER_HOME = tool 'SonarScanner'
+    SONAR_SCANNER_OPTS = '-Xmx512m'
   }
 
   stages {
@@ -34,7 +35,7 @@ pipeline {
       }
       steps {
         sh 'npx snyk auth "$SNYK_TOKEN" && npx snyk test --severity-threshold=high'
-        sh '"$SCANNER_HOME/bin/sonar-scanner" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.token="$SONAR_TOKEN"'
+        sh '"$SCANNER_HOME/bin/sonar-scanner" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.token="$SONAR_TOKEN" -Dsonar.javascript.node.maxspace=512'
       }
     }
 
