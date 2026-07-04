@@ -19,11 +19,17 @@ pipeline {
   }
 
   stages {
+    stage('Debug Info') {
+      steps {
+        echo "-> Aktueller GIT_BRANCH: ${env.GIT_BRANCH}"
+      }
+    }
+    
     stage('Lint') {
       when {
         anyOf {
-          branch 'main'
-          branch 'deploy/production'
+          expression { env.GIT_BRANCH?.contains('main') }
+          expression { env.GIT_BRANCH?.contains('deploy/production') }
         }
       }
       steps {
@@ -35,8 +41,8 @@ pipeline {
     stage('Test') {
       when {
         anyOf {
-          branch 'main'
-          branch 'deploy/production'
+          expression { env.GIT_BRANCH?.contains('main') }
+          expression { env.GIT_BRANCH?.contains('deploy/production') }
         }
       }
       steps {
@@ -48,8 +54,8 @@ pipeline {
     stage('Build') {
       when {
         anyOf {
-          branch 'main'
-          branch 'deploy/production'
+          expression { env.GIT_BRANCH?.contains('main') }
+          expression { env.GIT_BRANCH?.contains('deploy/production') }
         }
       }
       steps {
@@ -58,7 +64,7 @@ pipeline {
     }
 
     stage('Deliver') {
-      when { branch 'deploy/production' }
+      when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
         sh '''
           echo "$DOCKERHUB_CREDENTIALS_PSW" | docker login -u "$DOCKERHUB_CREDENTIALS_USR" --password-stdin
@@ -71,14 +77,14 @@ pipeline {
     }
 
     stage('Deploy (Blue/Green)') {
-      when { branch 'deploy/production' }
+      when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
         echo 'TODO §8: provision AWS EC2 staging + implement blue/green swap script.'
       }
     }
 
     stage('E2E & Performance') {
-      when { branch 'deploy/production' }
+      when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
         echo 'TODO: run Playwright + k6 against staging; on success, switch Blue/Green.'
       }
