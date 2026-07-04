@@ -14,8 +14,8 @@ pipeline {
 
   environment {
     IMAGE_NAME = 'secret-notes-frontend'
-    DOCKERHUB_CREDENTIALS = credentials('dockerhub-credentials')
-    SONAR_TOKEN = credentials('sonar-token')
+    DOCKERHUB_CREDENTIALS = credentials('dockerhub')
+    SONAR_TOKEN = credentials('sonarqube-token')
     SNYK_TOKEN = credentials('snyk-token')
   }
 
