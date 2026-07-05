@@ -7,17 +7,17 @@ pipeline {
 
   environment {
     IMAGE_NAME = 'nocryptify_frontend'
-    
-    STAGING_EC2_USER = "${env.STAGING_USER}"
-    STAGING_EC2_HOST = "${env.STAGING_HOST}"
-    STAGING_API_URL  = "${env.STAGING_API_URL}"
-    
     NGINX_CONF_DIR   = '/home/ubuntu/proxy/nginx'
+    
+    STAGING_EC2_USER = "${env.STAGING_EC2_USER}"
+    STAGING_EC2_HOST = "${env.STAGING_EC2_HOST}"
+    STAGING_API_URL  = "${env.STAGING_API_URL}"
     
     DOCKERHUB_CREDENTIALS = credentials('dockerhub')
     SONAR_TOKEN = credentials('sonarqube-token')
     SNYK_TOKEN = credentials('snyk-token')
     DISCORD_WEBHOOK = credentials('discord-webhook-url')
+    
     SCANNER_HOME = tool 'SonarScanner'
   }
 
@@ -79,34 +79,36 @@ pipeline {
       }
     }
 
-    stage('Deploy to Staging (Inactive Env)') {
+    stage('Deploy to Staging') {
       when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
         sshagent(credentials: ['app-ec2-ssh-key']) {
           sh '''
             ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "
-              # 1. Aktuellen Production-Container auslesen
-              PROD_CONTAINER=\$(grep 'upstream frontend_production' $NGINX_CONF_DIR/frontend.map | grep -o 'frontend-[a-z]*')
+              # WICHTIG: Die Backslashes (\\) vor dem $ sorgen dafür, dass 
+              # das Skript erst auf dem Server ausgeführt wird!
+              
+              PROD_CONTAINER=\\$(grep 'upstream frontend_production' $NGINX_CONF_DIR/frontend.map | grep -o 'frontend-[a-z]*')
 
-              if [ \\"\$PROD_CONTAINER\\" = \\"frontend-blue\\" ]; then
+              if [ \\"\\$PROD_CONTAINER\\" = \\"frontend-blue\\" ]; then
                 TARGET_ENV=\\"frontend-green\\"
               else
                 TARGET_ENV=\\"frontend-blue\\"
               fi
 
-              echo \\"Production läuft auf \$PROD_CONTAINER. Deploye neue Version auf \$TARGET_ENV...\\"
+              echo \\"Production läuft auf \\$PROD_CONTAINER. Deploye neue Version auf \\$TARGET_ENV...\\"
 
               # 2. Neue Version pullen
               docker login -u $DOCKERHUB_CREDENTIALS_USR -p $DOCKERHUB_CREDENTIALS_PSW
               docker pull $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
               
               # 3. Alten Staging-Container abräumen
-              docker stop \$TARGET_ENV || true
-              docker rm \$TARGET_ENV || true
+              docker stop \\$TARGET_ENV || true
+              docker rm \\$TARGET_ENV || true
               
-              # 4. Neuen Container starten (isoliert im 'network', ohne freigegebene Ports)
+              # 4. Neuen Container starten
               docker run -d \\
-                --name \$TARGET_ENV \\
+                --name \\$TARGET_ENV \\
                 --network network \\
                 $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
             "
