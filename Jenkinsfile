@@ -150,11 +150,12 @@ pipeline {
               fi
 
               echo "Umschalten: $NEW_PROD wird Production, $NEW_STAGING wird Staging."
+
               echo "upstream frontend_production { server $NEW_PROD:80; }" | sudo tee $NGINX_CONF_DIR/frontend.map > /dev/null
               echo "upstream frontend_staging { server $NEW_STAGING:80; }" | sudo tee -a $NGINX_CONF_DIR/frontend.map > /dev/null
 
               docker exec proxy nginx -s reload
-            EOF
+EOF
           '''
         }
       }
