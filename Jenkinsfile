@@ -7,7 +7,7 @@ pipeline {
 
   environment {
     IMAGE_NAME = 'nocryptify_frontend'
-    NGINX_CONF_DIR   = '/home/ubuntu/proxy/nginx'
+    NGINX_CONF_DIR   = 'home/ubuntu/secret-notes/nginx'
     
     STAGING_EC2_USER = "${env.STAGING_EC2_USER}"
     STAGING_EC2_HOST = "${env.STAGING_EC2_HOST}"
@@ -125,37 +125,40 @@ pipeline {
       steps {
         sshagent(credentials: ['app-ec2-ssh-key']) {
           sh '''
-            # Kurze Wartezeit, damit der Container sicher hochgefahren ist
             sleep 10
             
-            echo "Running E2E tests against http://$STAGING_EC2_HOST/staging/"
-            # HIER: npx playwright test --base-url=http://$STAGING_EC2_HOST/staging/
-
             echo "Tests successful! Swapping config on host and reloading NGINX proxy..."
 
-            ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "
-              PROD_CONTAINER=\$(grep 'upstream frontend_production' $NGINX_CONF_DIR/frontend.map | grep -o 'frontend-[a-z]*')
+            ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST << 'EOF'
+              NGINX_CONF_DIR="/home/ubuntu/secret-notes/nginx"
+              
+              sudo mkdir -p $NGINX_CONF_DIR
+              sudo touch $NGINX_CONF_DIR/frontend.map
 
-              if [ \\"\$PROD_CONTAINER\\" = \\"frontend-blue\\" ]; then
-                NEW_PROD=\\"frontend-green\\"
-                NEW_STAGING=\\"frontend-blue\\"
-              else
-                NEW_PROD=\\"frontend-blue\\"
-                NEW_STAGING=\\"frontend-green\\"
+              PROD_CONTAINER=$(sudo cat $NGINX_CONF_DIR/frontend.map | grep 'upstream frontend_production' | grep -o 'frontend-[a-z]*')
+
+              if [ -z "$PROD_CONTAINER" ]; then
+                PROD_CONTAINER="frontend-green"
               fi
 
-              # Map-Datei direkt auf dem Host neu schreiben
-              echo \\"upstream frontend_production { server \$NEW_PROD:80; }\\" | sudo tee $NGINX_CONF_DIR/frontend.map > /dev/null
-              echo \\"upstream frontend_staging { server \$NEW_STAGING:80; }\\" | sudo tee -a $NGINX_CONF_DIR/frontend.map > /dev/null
+              if [ "$PROD_CONTAINER" = "frontend-blue" ]; then
+                NEW_PROD="frontend-green"
+                NEW_STAGING="frontend-blue"
+              else
+                NEW_PROD="frontend-blue"
+                NEW_STAGING="frontend-green"
+              fi
 
-              # NGINX IM Proxy-Container neu laden
+              echo "Umschalten: $NEW_PROD wird Production, $NEW_STAGING wird Staging."
+              echo "upstream frontend_production { server $NEW_PROD:80; }" | sudo tee $NGINX_CONF_DIR/frontend.map > /dev/null
+              echo "upstream frontend_staging { server $NEW_STAGING:80; }" | sudo tee -a $NGINX_CONF_DIR/frontend.map > /dev/null
+
               docker exec proxy nginx -s reload
-            "
+            EOF
           '''
         }
       }
     }
-  }
 
   post {
     failure {
