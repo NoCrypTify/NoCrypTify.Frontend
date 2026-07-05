@@ -159,6 +159,7 @@ pipeline {
         }
       }
     }
+  }
 
   post {
     failure {
