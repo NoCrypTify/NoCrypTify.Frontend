@@ -6,11 +6,11 @@ pipeline {
   }
 
   environment {
-    IMAGE_NAME = 'secret-notes-frontend'
+    IMAGE_NAME = 'nocryptify_frontend'
     
-    STAGING_EC2_USER = env.STAGING_USER
-    STAGING_EC2_HOST = env.STAGING_HOST
-    STAGING_API_URL  = 'https://staging.deine-api.com'
+    STAGING_EC2_USER = "${env.STAGING_USER}"
+    STAGING_EC2_HOST = "${env.STAGING_HOST}"
+    STAGING_API_URL  = "${env.STAGING_API_URL}"
     
     NGINX_CONF_DIR   = '/home/ubuntu/proxy/nginx'
     
