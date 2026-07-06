@@ -12,6 +12,7 @@ pipeline {
     STAGING_EC2_USER = "${env.STAGING_EC2_USER}"
     STAGING_EC2_HOST = "${env.STAGING_EC2_HOST}"
     STAGING_API_URL  = "${env.STAGING_API_URL}"
+    VITE_API_URL     = "${env.VITE_API_URL}"
     
     DOCKERHUB_CREDENTIALS = credentials('dockerhub')
     SONAR_TOKEN = credentials('sonarqube-token')
@@ -65,7 +66,7 @@ pipeline {
         }
       }
       steps {
-        sh "docker build -t ${IMAGE_NAME}:${env.GIT_COMMIT} --build-arg VITE_API_URL=${STAGING_API_URL} ."
+        sh "docker build -t ${IMAGE_NAME}:${env.GIT_COMMIT} --build-arg VITE_API_URL=${VITE_API_URL} ."
       }
     }
 
@@ -110,7 +111,6 @@ pipeline {
               docker run -d \\
                 --name $TARGET_ENV \\
                 --network network \\
-                --env-file ./secret-notes/.env \\
                 $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
             "
           '''
