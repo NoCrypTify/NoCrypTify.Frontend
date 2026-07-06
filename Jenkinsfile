@@ -129,7 +129,7 @@ pipeline {
             -v "${WORKSPACE}:/work" \\
             -w /work \\
             -e STAGING_URL="${STAGING_URL}" \\
-            mcr.microsoft.com/playwright:v1.40.0-jammy \\
+            mcr.microsoft.com/playwright:v1.61.1-jammy \\
             /bin/bash -c "npm ci && npx playwright test tests/e2e/app.spec.ts"
         
         echo "Running Performance Tests with k6..."
