@@ -110,6 +110,7 @@ pipeline {
               docker run -d \\
                 --name $TARGET_ENV \\
                 --network network \\
+                --env-file ./secret-notes/.env \\
                 $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
             "
           '''
@@ -125,8 +126,6 @@ pipeline {
             sleep 10
             echo "Tests successful! Swapping config on host and reloading NGINX proxy..."
 
-            # Der EOF-Block schützt die NGINX-Variablen ($frontend_production) davor,
-            # von Jenkins falsch interpretiert zu werden. Keine Backslashes nötig!
             ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST << 'EOF'
               
               COLOR_FILE="/home/ubuntu/secret-notes/frontend-prod.colour"
@@ -153,9 +152,9 @@ pipeline {
 
               echo "Umschalten: $NEW_PROD wird Production, $NEW_STAGING wird Staging."
 
-              # NGINX Conf und Colour-File überschreiben (wie in deinem Backend-Skript)
-              echo "set \$frontend_production http://frontend-${NEW_PROD}:80;" > "$CONF_FILE"
-              echo "set \$frontend_staging http://frontend-${NEW_STAGING}:80;" >> "$CONF_FILE"
+              # Die kugelsichere Schreibweise ohne Backslash-Probleme:
+              echo 'set $frontend_production http://frontend-'"$NEW_PROD"':80;' > "$CONF_FILE"
+              echo 'set $frontend_staging http://frontend-'"$NEW_STAGING"':80;' >> "$CONF_FILE"
               
               echo "$NEW_PROD" > "$COLOR_FILE"
 
