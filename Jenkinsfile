@@ -7,7 +7,7 @@ pipeline {
 
   environment {
     IMAGE_NAME = 'nocryptify_frontend'
-    NGINX_CONF_DIR   = 'home/ubuntu/secret-notes/nginx'
+    NGINX_CONF_DIR = '/home/ubuntu/secret-notes/nginx'
     
     STAGING_EC2_USER = "${env.STAGING_EC2_USER}"
     STAGING_EC2_HOST = "${env.STAGING_EC2_HOST}"
@@ -82,36 +82,33 @@ pipeline {
       }
     }
 
-    stage('Deploy to Staging') {
+    stage('Deploy to Staging (Inactive Env)') {
       when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
         sshagent(credentials: ['app-ec2-ssh-key']) {
           sh '''
+            # 1. Aktuelle Farbe vom Server auslesen (Fallback auf 'blue', falls Datei fehlt)
+            PROD_COLOR=$(ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "cat /home/ubuntu/secret-notes/frontend-prod.colour 2>/dev/null || echo 'blue'")
+
+            # 2. Ziel-Container bestimmen
+            if [ "$PROD_COLOR" = "blue" ]; then
+              TARGET_ENV="frontend-green"
+            else
+              TARGET_ENV="frontend-blue"
+            fi
+
+            echo "Production ist aktuell: $PROD_COLOR. Deploye neue Version auf: $TARGET_ENV..."
+
+            # 3. Neuen Container auf dem Server starten
             ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "
-              # WICHTIG: Die Backslashes (\\) vor dem $ sorgen dafür, dass 
-              # das Skript erst auf dem Server ausgeführt wird!
-              
-              PROD_CONTAINER=\\$(grep 'upstream frontend_production' $NGINX_CONF_DIR/frontend.map | grep -o 'frontend-[a-z]*')
-
-              if [ \\"\\$PROD_CONTAINER\\" = \\"frontend-blue\\" ]; then
-                TARGET_ENV=\\"frontend-green\\"
-              else
-                TARGET_ENV=\\"frontend-blue\\"
-              fi
-
-              echo \\"Production läuft auf \\$PROD_CONTAINER. Deploye neue Version auf \\$TARGET_ENV...\\"
-
-              # 2. Neue Version pullen
               docker login -u $DOCKERHUB_CREDENTIALS_USR -p $DOCKERHUB_CREDENTIALS_PSW
               docker pull $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
               
-              # 3. Alten Staging-Container abräumen
-              docker stop \\$TARGET_ENV || true
-              docker rm \\$TARGET_ENV || true
+              docker stop $TARGET_ENV || true
+              docker rm $TARGET_ENV || true
               
-              # 4. Neuen Container starten
               docker run -d \\
-                --name \\$TARGET_ENV \\
+                --name $TARGET_ENV \\
                 --network network \\
                 $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
             "
@@ -126,34 +123,43 @@ pipeline {
         sshagent(credentials: ['app-ec2-ssh-key']) {
           sh '''
             sleep 10
-            
             echo "Tests successful! Swapping config on host and reloading NGINX proxy..."
 
+            # Der EOF-Block schützt die NGINX-Variablen ($frontend_production) davor,
+            # von Jenkins falsch interpretiert zu werden. Keine Backslashes nötig!
             ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST << 'EOF'
-              NGINX_CONF_DIR="/home/ubuntu/secret-notes/nginx"
               
-              sudo mkdir -p $NGINX_CONF_DIR
-              sudo touch $NGINX_CONF_DIR/frontend.map
+              COLOR_FILE="/home/ubuntu/secret-notes/frontend-prod.colour"
+              CONF_FILE="/home/ubuntu/secret-notes/nginx/targets/frontend.conf"
+              
+              # Verzeichnis zur Sicherheit anlegen
+              mkdir -p /home/ubuntu/secret-notes/nginx/targets
 
-              PROD_CONTAINER=$(sudo cat $NGINX_CONF_DIR/frontend.map | grep 'upstream frontend_production' | grep -o 'frontend-[a-z]*')
-
-              if [ -z "$PROD_CONTAINER" ]; then
-                PROD_CONTAINER="frontend-green"
+              # Status lesen
+              if [ -f "$COLOR_FILE" ]; then
+                PROD_COLOR=$(cat "$COLOR_FILE")
+              else
+                PROD_COLOR="blue"
               fi
 
-              if [ "$PROD_CONTAINER" = "frontend-blue" ]; then
-                NEW_PROD="frontend-green"
-                NEW_STAGING="frontend-blue"
+              # Umschalt-Logik
+              if [ "$PROD_COLOR" = "blue" ]; then
+                NEW_PROD="green"
+                NEW_STAGING="blue"
               else
-                NEW_PROD="frontend-blue"
-                NEW_STAGING="frontend-green"
+                NEW_PROD="blue"
+                NEW_STAGING="green"
               fi
 
               echo "Umschalten: $NEW_PROD wird Production, $NEW_STAGING wird Staging."
 
-              echo "upstream frontend_production { server $NEW_PROD:80; }" | sudo tee $NGINX_CONF_DIR/frontend.map > /dev/null
-              echo "upstream frontend_staging { server $NEW_STAGING:80; }" | sudo tee -a $NGINX_CONF_DIR/frontend.map > /dev/null
+              # NGINX Conf und Colour-File überschreiben (wie in deinem Backend-Skript)
+              echo "set \$frontend_production http://frontend-${NEW_PROD}:80;" > "$CONF_FILE"
+              echo "set \$frontend_staging http://frontend-${NEW_STAGING}:80;" >> "$CONF_FILE"
+              
+              echo "$NEW_PROD" > "$COLOR_FILE"
 
+              # NGINX neu laden
               docker exec proxy nginx -s reload
 EOF
           '''
