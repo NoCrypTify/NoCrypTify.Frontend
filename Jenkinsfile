@@ -11,7 +11,7 @@ pipeline {
     
     STAGING_EC2_USER = "${env.STAGING_EC2_USER}"
     STAGING_EC2_HOST = "${env.STAGING_EC2_HOST}"
-    STAGING_API_URL  = "${env.STAGING_API_URL}"
+    STAGING_URL      = "${env.STAGING_URL}"
     VITE_API_URL     = "${env.VITE_API_URL}"
     
     DOCKERHUB_CREDENTIALS = credentials('dockerhub')
@@ -83,7 +83,7 @@ pipeline {
       }
     }
 
-    stage('Deploy to Staging (Inactive Env)') {
+    stage('Deploy to Staging') {
       when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
         sshagent(credentials: ['app-ec2-ssh-key']) {
@@ -111,6 +111,7 @@ pipeline {
               docker run -d \\
                 --name $TARGET_ENV \\
                 --network network \\
+                --restart unless-stopped \\
                 $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
             "
           '''
@@ -118,12 +119,21 @@ pipeline {
       }
     }
 
-    stage('E2E & Switch Traffic') {
+    stage('E2E, Performance & Switch Traffic') {
       when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
+        sh 'sleep 10'
+        
+        echo "Running E2E Tests with Playwright..."
+        sh 'npm ci'
+        sh 'npx playwright install --with-deps chromium'
+        sh 'STAGING_URL=${STAGING_URL} npx playwright test tests/e2e/app.spec.ts'
+        
+        echo "Running Performance Tests with k6..."
+        sh 'docker run --rm -i -e STAGING_URL=${STAGING_URL} grafana/k6 run - < tests/performance/load.js'
+
         sshagent(credentials: ['app-ec2-ssh-key']) {
           sh '''
-            sleep 10
             echo "Tests successful! Swapping config on host and reloading NGINX proxy..."
 
             ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST << 'EOF'
