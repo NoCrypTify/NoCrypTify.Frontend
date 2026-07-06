@@ -125,9 +125,12 @@ pipeline {
         sh 'sleep 10'
         
         echo "Running E2E Tests with Playwright..."
-        sh 'npm ci'
-        sh 'npx playwright install --with-deps chromium'
-        sh 'STAGING_URL=${STAGING_URL} npx playwright test tests/e2e/app.spec.ts'
+        docker run --rm \\
+            -v "${WORKSPACE}:/work" \\
+            -w /work \\
+            -e STAGING_URL="${STAGING_URL}" \\
+            mcr.microsoft.com/playwright:v1.40.0-jammy \\
+            /bin/bash -c "npm ci && npx playwright test tests/e2e/app.spec.ts"
         
         echo "Running Performance Tests with k6..."
         sh 'docker run --rm -i -e STAGING_URL=${STAGING_URL} grafana/k6 run - < tests/performance/load.js'
