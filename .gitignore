@@ -2,6 +2,10 @@ node_modules/
 dist/
 *.log
 .vite/
+# Playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
 .env
 .env.local
 .env.*.local
