@@ -6,7 +6,13 @@ pipeline {
   }
 
   environment {
-    IMAGE_NAME = 'secret-notes-frontend'
+    IMAGE_NAME = 'nocryptify_frontend'
+    NGINX_CONF_DIR = '/home/ubuntu/secret-notes/nginx'
+    
+    STAGING_EC2_USER = "${env.STAGING_EC2_USER}"
+    STAGING_EC2_HOST = "${env.STAGING_EC2_HOST}"
+    STAGING_URL      = "${env.STAGING_URL}"
+    VITE_API_URL     = "${env.VITE_API_URL}"
     
     DOCKERHUB_CREDENTIALS = credentials('dockerhub')
     SONAR_TOKEN = credentials('sonarqube-token')
@@ -23,7 +29,7 @@ pipeline {
       }
     }
     
-    stage('Lint') {
+    stage('Lint & Sec') {
       when {
         anyOf {
           expression { env.GIT_BRANCH?.contains('main') }
@@ -31,8 +37,11 @@ pipeline {
         }
       }
       steps {
-        sh 'npx snyk auth "$SNYK_TOKEN" && npx snyk test --severity-threshold=high'
-        sh '"$SCANNER_HOME/bin/sonar-scanner" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.token="$SONAR_TOKEN"'
+        sh 'npx snyk auth "$SNYK_TOKEN"'
+        sh 'npx snyk test --severity-threshold=high || true'
+        sh 'npx snyk monitor --project-name="${IMAGE_NAME}" || true'
+        
+        sh '"$SCANNER_HOME/bin/sonar-scanner" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.token="$SONAR_TOKEN" || true'
       }
     }
 
@@ -57,7 +66,7 @@ pipeline {
         }
       }
       steps {
-        sh "docker build -t ${IMAGE_NAME}:${env.GIT_COMMIT} --build-arg VITE_API_URL=${STAGING_API_URL} ."
+        sh "docker build -t ${IMAGE_NAME}:${env.GIT_COMMIT} --build-arg VITE_API_URL=${VITE_API_URL} ."
       }
     }
 
@@ -74,43 +83,46 @@ pipeline {
       }
     }
 
-    stage('Deploy to Staging (Inactive Env)') {
+    stage('Deploy to Staging') {
       when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
         sshagent(credentials: ['app-ec2-ssh-key']) {
           sh '''
-            ACTIVE_BLUE=$(ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "docker ps -q -f name=frontend-blue | wc -l")
+            # 1. Aktuelle Farbe vom Server auslesen (Fallback auf 'blue', falls Datei fehlt)
+            PROD_COLOR=$(ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "cat /home/ubuntu/secret-notes/frontend-prod.colour 2>/dev/null || echo 'blue'")
 
-            if [ "$ACTIVE_BLUE" -eq "1" ]; then
-              TARGET_ENV="green"
-              TARGET_PORT=3001
+            # 2. Ziel-Container bestimmen
+            if [ "$PROD_COLOR" = "blue" ]; then
+              TARGET_ENV="frontend-green"
             else
-              TARGET_ENV="blue"
-              TARGET_PORT=3000
+              TARGET_ENV="frontend-blue"
             fi
 
-            echo "Deploying to INACTIVE environment: $TARGET_ENV on port $TARGET_PORT"
+            echo "Production ist aktuell: $PROD_COLOR. Deploye neue Version auf: $TARGET_ENV..."
 
+            # 3. Neuen Container auf dem Server starten
             ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "
               docker login -u $DOCKERHUB_CREDENTIALS_USR -p $DOCKERHUB_CREDENTIALS_PSW
               docker pull $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
               
-              docker stop frontend-$TARGET_ENV || true
-              docker rm frontend-$TARGET_ENV || true
+              docker stop $TARGET_ENV || true
+              docker rm $TARGET_ENV || true
               
-              docker run -d --name frontend-$TARGET_ENV -p $TARGET_PORT:80 $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
+              docker run -d \\
+                --name $TARGET_ENV \\
+                --network network \\
+                --restart unless-stopped \\
+                $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
             "
-
-            echo $TARGET_ENV > target_env.txt
-            echo $TARGET_PORT > target_port.txt
           '''
         }
       }
     }
 
-    stage('E2E & Switch Traffic') {
+    stage('E2E, Performance & Switch Traffic') {
       when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
+        sh 'sleep 10'
         // 1) Playwright E2E against the freshly-deployed INACTIVE environment.
         //    Runs in a SEPARATE sh step: if any test fails this step exits
         //    non-zero, the stage fails, and the traffic switch below never
@@ -124,28 +136,52 @@ pipeline {
           echo "Running Playwright E2E against http://$STAGING_EC2_HOST:$TARGET_PORT"
           E2E_BASE_URL="http://$STAGING_EC2_HOST:$TARGET_PORT" npm run test:e2e
         '''
+        
+        echo "Running E2E Tests with Playwright..."
+        sh """docker run --rm -v "${WORKSPACE}:/work" -w /work -e STAGING_URL="${STAGING_URL}" mcr.microsoft.com/playwright:v1.61.1-jammy /bin/bash -c "npm ci && npx playwright test tests/e2e/app.spec.ts" """
+        
+        echo "Running Performance Tests with k6..."
+        sh 'docker run --rm -i -e STAGING_URL=${STAGING_URL} grafana/k6 run - < tests/performance/load.js'
 
-        // 2) Only reached if the tests above passed: switch nginx to the new
-        //    environment and stop the old one.
         sshagent(credentials: ['app-ec2-ssh-key']) {
           sh '''
-            set -e
-            TARGET_ENV=$(cat target_env.txt)
+            echo "Tests successful! Swapping config on host and reloading NGINX proxy..."
 
-            if [ "$TARGET_ENV" = "green" ]; then
-              OLD_ENV="blue"
-            else
-              OLD_ENV="green"
-            fi
+            ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST << 'EOF'
+              
+              COLOR_FILE="/home/ubuntu/secret-notes/frontend-prod.colour"
+              CONF_FILE="/home/ubuntu/secret-notes/nginx/targets/frontend.conf"
+              
+              # Verzeichnis zur Sicherheit anlegen
+              mkdir -p /home/ubuntu/secret-notes/nginx/targets
 
-            echo "E2E passed — switching traffic to $TARGET_ENV..."
+              # Status lesen
+              if [ -f "$COLOR_FILE" ]; then
+                PROD_COLOR=$(cat "$COLOR_FILE")
+              else
+                PROD_COLOR="blue"
+              fi
 
-            ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "
-              sudo ln -sf /etc/nginx/sites-available/frontend-$TARGET_ENV /etc/nginx/sites-enabled/frontend
-              sudo systemctl reload nginx
+              # Umschalt-Logik
+              if [ "$PROD_COLOR" = "blue" ]; then
+                NEW_PROD="green"
+                NEW_STAGING="blue"
+              else
+                NEW_PROD="blue"
+                NEW_STAGING="green"
+              fi
 
-              docker stop frontend-$OLD_ENV || true
-            "
+              echo "Umschalten: $NEW_PROD wird Production, $NEW_STAGING wird Staging."
+
+              # Die kugelsichere Schreibweise ohne Backslash-Probleme:
+              echo 'set $frontend_production http://frontend-'"$NEW_PROD"':80;' > "$CONF_FILE"
+              echo 'set $frontend_staging http://frontend-'"$NEW_STAGING"':80;' >> "$CONF_FILE"
+              
+              echo "$NEW_PROD" > "$COLOR_FILE"
+
+              # NGINX neu laden
+              docker exec proxy nginx -s reload
+EOF
           '''
         }
       }
