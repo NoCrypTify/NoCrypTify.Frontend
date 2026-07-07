@@ -127,7 +127,7 @@ describe('revealNote', () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(404, { error: 'Note not found' }),
     );
-    await expect(revealNote(NOTE.noteId, 'pw')).rejects.toThrow(
+    await expect(revealNote(NOTE.noteId, 'pwx')).rejects.toThrow(
       'Note not found',
     );
   });
