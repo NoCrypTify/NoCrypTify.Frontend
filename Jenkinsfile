@@ -201,10 +201,16 @@ EOF
       node('') {
         sh '''
           if [ -n "$DISCORD_WEBHOOK" ]; then
-            FIXED_URL="http://3.215.243.214:8080/job/${JOB_NAME}/${BUILD_NUMBER}/console"
+            # 1. Leerzeichen im Job-Namen durch %20 ersetzen (URL-Encoding)
+            ENCODED_JOB_NAME="${JOB_NAME// /%20}"
+            
+            # 2. Den exakten Blue Ocean Link mit der öffentlichen IP zusammenbauen
+            BLUE_OCEAN_URL="http://3.215.243.214:8080/blue/organizations/jenkins/${ENCODED_JOB_NAME}/detail/${ENCODED_JOB_NAME}/${BUILD_NUMBER}/pipeline"
+            
+            # 3. An Discord senden
             curl -H "Content-Type: application/json" \
               -X POST \
-              -d "{\\"content\\": \\"<@&1522970703245348995> ❌ **${JOB_NAME} #${BUILD_NUMBER}** failed on branch **${BRANCH_NAME}**!\\\\nDetails: ${FIXED_URL}\\"}" \
+              -d "{\\"content\\": \\"<@&1522970703245348995> ❌ **${JOB_NAME} #${BUILD_NUMBER}** failed on branch **${BRANCH_NAME}**!\\\\nDetails: ${BLUE_OCEAN_URL}\\"}" \
               "$DISCORD_WEBHOOK"
           fi
         '''
