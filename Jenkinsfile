@@ -46,8 +46,8 @@ pipeline {
         }
       }
       steps {
-        sh 'rm -rf node_modules || true'
-        
+        sh 'docker run --rm -u root -v "${WORKSPACE}:/work" -w /work node:20 rm -rf node_modules || true'
+
         sh 'npm ci'
         sh 'npm test -- --coverage'
       }
