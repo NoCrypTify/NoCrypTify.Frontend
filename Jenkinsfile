@@ -133,7 +133,7 @@ pipeline {
             -w /work \
             -e E2E_BASE_URL="$TEST_URL" \
             -e STAGING_URL="$TEST_URL" \
-            -e VITE_POSTHOG_KEY="${env.VITE_POSTHOG_KEY}" \
+            -e VITE_POSTHOG_KEY="$VITE_POSTHOG_KEY" \
             mcr.microsoft.com/playwright:v1.61.1-jammy \
             /bin/bash -c "npm ci && npm run test:e2e"
         '''
