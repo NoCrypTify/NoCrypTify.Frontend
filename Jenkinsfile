@@ -121,6 +121,8 @@ pipeline {
           set -e
           TARGET_PORT=$(cat target_port.txt)
           echo "Running Playwright E2E against http://$STAGING_EC2_HOST:$TARGET_PORT"
+
+          docker run --rm -u root -v "${WORKSPACE}:/work" -w /work node:20 rm -rf test-results playwright-report || true
           
           docker run --rm \
             --user $(id -u):$(id -g) \
