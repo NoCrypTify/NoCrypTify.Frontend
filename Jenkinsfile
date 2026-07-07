@@ -129,23 +129,44 @@ pipeline {
         //    environment and stop the old one.
         sshagent(credentials: ['app-ec2-ssh-key']) {
           sh '''
-            set -e
-            TARGET_ENV=$(cat target_env.txt)
+            echo "Tests successful! Swapping config on host and reloading NGINX proxy..."
 
-            if [ "$TARGET_ENV" = "green" ]; then
-              OLD_ENV="blue"
-            else
-              OLD_ENV="green"
-            fi
+            ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST << 'EOF'
+              
+              COLOR_FILE="/home/ubuntu/secret-notes/frontend-prod.colour"
+              CONF_FILE="/home/ubuntu/secret-notes/nginx/targets/frontend.conf"
+              
+              # Verzeichnis zur Sicherheit anlegen
+              mkdir -p /home/ubuntu/secret-notes/nginx/targets
 
-            echo "E2E passed — switching traffic to $TARGET_ENV..."
+              # Status lesen
+              if [ -f "$COLOR_FILE" ]; then
+                PROD_COLOR=$(cat "$COLOR_FILE")
+              else
+                PROD_COLOR="blue"
+              fi
 
-            ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "
-              sudo ln -sf /etc/nginx/sites-available/frontend-$TARGET_ENV /etc/nginx/sites-enabled/frontend
-              sudo systemctl reload nginx
+              # Umschalt-Logik
+              if [ "$PROD_COLOR" = "blue" ]; then
+                NEW_PROD="green"
+                NEW_STAGING="blue"
+              else
+                NEW_PROD="blue"
+                NEW_STAGING="green"
+              fi
 
-              docker stop frontend-$OLD_ENV || true
-            "
+              echo "Umschalten: $NEW_PROD wird Production, $NEW_STAGING wird Staging."
+
+              # Die kugelsichere Schreibweise ohne Backslash-Probleme:
+              echo 'set $frontend_production http://frontend-'"$NEW_PROD"':80;' > "$CONF_FILE"
+              echo 'set $frontend_staging http://frontend-'"$NEW_STAGING"':80;' >> "$CONF_FILE"
+              
+              echo "$NEW_PROD" > "$COLOR_FILE"
+
+              # NGINX neu laden
+              docker exec proxy nginx -s reload
+EOF
+
           '''
         }
       }
