@@ -10,7 +10,7 @@ pipeline {
     NGINX_CONF_DIR = '/home/ubuntu/secret-notes/nginx'
 
     STAGING_EC2_USER = "${env.STAGING_EC2_USER}"
-    STAGING_EC2_HOST = "${env.STAGING_EC2_HOST}"
+    STAGING_EC2_HOST = "${env.EC2_HOST}"
     STAGING_URL      = "${env.STAGING_URL}"
     VITE_API_URL     = "${env.VITE_API_URL}"
 
@@ -83,19 +83,18 @@ pipeline {
       steps {
         sshagent(credentials: ['app-ec2-ssh-key']) {
           sh '''
-            # 1. Aktuelle Farbe vom Server auslesen (Fallback auf 'blue', falls Datei fehlt)
             PROD_COLOR=$(ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "cat /home/ubuntu/secret-notes/frontend-prod.colour 2>/dev/null || echo 'blue'")
 
-            # 2. Ziel-Container bestimmen
             if [ "$PROD_COLOR" = "blue" ]; then
               TARGET_ENV="frontend-green"
+              TARGET_PORT=3001
             else
               TARGET_ENV="frontend-blue"
+              TARGET_PORT=3000
             fi
 
-            echo "Production ist aktuell: $PROD_COLOR. Deploye neue Version auf: $TARGET_ENV..."
+            echo "Production ist aktuell: $PROD_COLOR. Deploye neue Version auf Staging: $TARGET_ENV..."
 
-            # 3. Neuen Container auf dem Server starten
             ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "
               docker login -u $DOCKERHUB_CREDENTIALS_USR -p $DOCKERHUB_CREDENTIALS_PSW
               docker pull $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
@@ -107,7 +106,6 @@ pipeline {
                 --name $TARGET_ENV \\
                 -p $TARGET_PORT:80 \\
                 --network network \\
-                --restart unless-stopped \\
                 --restart unless-stopped \\
                 $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
             "
@@ -121,8 +119,10 @@ pipeline {
       steps {
         sh '''
           set -e
-          TARGET_PORT=$(cat target_port.txt)
-          echo "Running Playwright E2E against http://$STAGING_EC2_HOST:$TARGET_PORT"
+          
+          # Wir nutzen nun /staging statt des direkten Ports!
+          TEST_URL="http://$STAGING_EC2_HOST/staging"
+          echo "Running Playwright E2E against $TEST_URL"
 
           docker run --rm -u root -v "${WORKSPACE}:/work" -w /work node:20 rm -rf test-results playwright-report || true
           
@@ -131,8 +131,8 @@ pipeline {
             -e HOME=/work \
             -v "${WORKSPACE}:/work" \
             -w /work \
-            -e E2E_BASE_URL="http://$STAGING_EC2_HOST:$TARGET_PORT" \
-            -e STAGING_URL="http://$STAGING_EC2_HOST:$TARGET_PORT" \
+            -e E2E_BASE_URL="$TEST_URL" \
+            -e STAGING_URL="$TEST_URL" \
             mcr.microsoft.com/playwright:v1.61.1-jammy \
             /bin/bash -c "npm ci && npm run test:e2e"
         '''
@@ -146,17 +146,14 @@ pipeline {
               COLOR_FILE="/home/ubuntu/secret-notes/frontend-prod.colour"
               CONF_FILE="/home/ubuntu/secret-notes/nginx/targets/frontend.conf"
               
-              # Verzeichnis zur Sicherheit anlegen
               mkdir -p /home/ubuntu/secret-notes/nginx/targets
 
-              # Status lesen
               if [ -f "$COLOR_FILE" ]; then
                 PROD_COLOR=$(cat "$COLOR_FILE")
               else
                 PROD_COLOR="blue"
               fi
 
-              # Umschalt-Logik
               if [ "$PROD_COLOR" = "blue" ]; then
                 NEW_PROD="green"
                 NEW_STAGING="blue"
@@ -167,16 +164,13 @@ pipeline {
 
               echo "Umschalten: $NEW_PROD wird Production, $NEW_STAGING wird Staging."
 
-              # Die kugelsichere Schreibweise ohne Backslash-Probleme:
               echo 'set $frontend_production http://frontend-'"$NEW_PROD"':80;' > "$CONF_FILE"
               echo 'set $frontend_staging http://frontend-'"$NEW_STAGING"':80;' >> "$CONF_FILE"
               
               echo "$NEW_PROD" > "$COLOR_FILE"
 
-              # NGINX neu laden
               docker exec proxy nginx -s reload
-              EOF
-
+EOF
           '''
         }
       }
