@@ -205,7 +205,7 @@ EOF
             ENCODED_JOB_NAME=$(echo "$JOB_NAME" | sed 's/ /%20/g')
             
             # 2. Den exakten Blue Ocean Link zusammenbauen
-            BLUE_OCEAN_URL="http://3.215.243.214:8080/blue/organizations/jenkins/${ENCODED_JOB_NAME}/detail/${ENCODED_JOB_NAME}/${BUILD_NUMBER}/pipeline"
+            BLUE_OCEAN_URL="http://100.59.245.13:8080/blue/organizations/jenkins/${ENCODED_JOB_NAME}/detail/${ENCODED_JOB_NAME}/${BUILD_NUMBER}/pipeline"
             
             # 3. An Discord senden
             curl -H "Content-Type: application/json" \
