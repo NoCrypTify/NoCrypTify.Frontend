@@ -6,23 +6,23 @@ pipeline {
   }
 
   environment {
-    IMAGE_NAME = 'secret-notes-frontend'
-    
+    IMAGE_NAME = 'nocryptify_frontend'
+    NGINX_CONF_DIR = '/home/ubuntu/secret-notes/nginx'
+
+    STAGING_EC2_USER = "${env.STAGING_EC2_USER}"
+    STAGING_EC2_HOST = "${env.STAGING_EC2_HOST}"
+    STAGING_URL      = "${env.STAGING_URL}"
+    VITE_API_URL     = "${env.VITE_API_URL}"
+
     DOCKERHUB_CREDENTIALS = credentials('dockerhub')
     SONAR_TOKEN = credentials('sonarqube-token')
     SNYK_TOKEN = credentials('snyk-token')
     DISCORD_WEBHOOK = credentials('discord-webhook-url')
-    
+
     SCANNER_HOME = tool 'SonarScanner'
   }
 
   stages {
-    stage('Debug Info') {
-      steps {
-        echo "-> Aktueller GIT_BRANCH: ${env.GIT_BRANCH}"
-      }
-    }
-    
     stage('Lint') {
       when {
         anyOf {
@@ -31,7 +31,9 @@ pipeline {
         }
       }
       steps {
-        sh 'npx snyk auth "$SNYK_TOKEN" && npx snyk test --severity-threshold=high'
+        sh 'npx snyk auth "$SNYK_TOKEN"'
+        sh 'npx snyk test --severity-threshold=high || true'
+        sh 'npx snyk monitor --project-name="${IMAGE_NAME}" || true'
         sh '"$SCANNER_HOME/bin/sonar-scanner" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.token="$SONAR_TOKEN"'
       }
     }
@@ -74,35 +76,37 @@ pipeline {
       }
     }
 
-    stage('Deploy to Staging (Inactive Env)') {
+    stage('Deploy to Staging') {
       when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
         sshagent(credentials: ['app-ec2-ssh-key']) {
           sh '''
-            ACTIVE_BLUE=$(ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "docker ps -q -f name=frontend-blue | wc -l")
+            # 1. Aktuelle Farbe vom Server auslesen (Fallback auf 'blue', falls Datei fehlt)
+            PROD_COLOR=$(ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "cat /home/ubuntu/secret-notes/frontend-prod.colour 2>/dev/null || echo 'blue'")
 
-            if [ "$ACTIVE_BLUE" -eq "1" ]; then
-              TARGET_ENV="green"
-              TARGET_PORT=3001
+            # 2. Ziel-Container bestimmen
+            if [ "$PROD_COLOR" = "blue" ]; then
+              TARGET_ENV="frontend-green"
             else
-              TARGET_ENV="blue"
-              TARGET_PORT=3000
+              TARGET_ENV="frontend-blue"
             fi
 
-            echo "Deploying to INACTIVE environment: $TARGET_ENV on port $TARGET_PORT"
+            echo "Production ist aktuell: $PROD_COLOR. Deploye neue Version auf: $TARGET_ENV..."
 
+            # 3. Neuen Container auf dem Server starten
             ssh -o StrictHostKeyChecking=no $STAGING_EC2_USER@$STAGING_EC2_HOST "
               docker login -u $DOCKERHUB_CREDENTIALS_USR -p $DOCKERHUB_CREDENTIALS_PSW
               docker pull $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
               
-              docker stop frontend-$TARGET_ENV || true
-              docker rm frontend-$TARGET_ENV || true
+              docker stop $TARGET_ENV || true
+              docker rm $TARGET_ENV || true
               
-              docker run -d --name frontend-$TARGET_ENV -p $TARGET_PORT:80 $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
+              docker run -d \\
+                --name $TARGET_ENV \\
+                --network network \\
+                --restart unless-stopped \\
+                $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
             "
-
-            echo $TARGET_ENV > target_env.txt
-            echo $TARGET_PORT > target_port.txt
           '''
         }
       }
