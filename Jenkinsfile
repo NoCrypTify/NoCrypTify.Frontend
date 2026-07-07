@@ -59,7 +59,7 @@ pipeline {
         }
       }
       steps {
-        sh "docker build -t ${IMAGE_NAME}:${env.GIT_COMMIT} --build-arg VITE_API_URL=${STAGING_URL} ."
+        sh "docker build -t ${IMAGE_NAME}:${env.GIT_COMMIT} --build-arg VITE_API_URL=${VITE_API_URL} ."
       }
     }
 
@@ -116,7 +116,7 @@ pipeline {
       when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
         sh '''
-          set -e
+set -e
           TARGET_PORT=$(cat target_port.txt)
           echo "Running Playwright E2E against http://$STAGING_EC2_HOST:$TARGET_PORT"
           
@@ -125,7 +125,7 @@ pipeline {
             -w /work \
             -e E2E_BASE_URL="http://$STAGING_EC2_HOST:$TARGET_PORT" \
             -e STAGING_URL="http://$STAGING_EC2_HOST:$TARGET_PORT" \
-            mcr.microsoft.com/playwright:v1.49.1-jammy \
+            mcr.microsoft.com/playwright:v1.61.1-jammy \
             /bin/bash -c "npm ci && npm run test:e2e"
         '''
 
