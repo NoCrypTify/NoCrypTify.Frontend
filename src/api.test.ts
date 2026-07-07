@@ -60,7 +60,7 @@ describe('createNote', () => {
     expect(init?.method).toBe('POST');
     expect(JSON.parse(init?.body as string)).toEqual({
       title: 'Test',
-      content: 'secret false',
+      content: 'secret',
       key: 'pw',
     });
   });
