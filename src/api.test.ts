@@ -60,7 +60,7 @@ describe('createNote', () => {
     expect(init?.method).toBe('POST');
     expect(JSON.parse(init?.body as string)).toEqual({
       title: 'Test',
-      content: 'secret',
+      content: 'secret false',
       key: 'pw',
     });
   });
@@ -127,7 +127,7 @@ describe('revealNote', () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(404, { error: 'Note not found' }),
     );
-    await expect(revealNote(NOTE.noteId, 'pwx')).rejects.toThrow(
+    await expect(revealNote(NOTE.noteId, 'pw')).rejects.toThrow(
       'Note not found',
     );
   });
