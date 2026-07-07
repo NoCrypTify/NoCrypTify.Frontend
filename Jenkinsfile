@@ -34,8 +34,9 @@ pipeline {
       }
       steps {
         sh 'npx snyk auth "$SNYK_TOKEN"'
-        sh 'npx snyk test --severity-threshold=high || true'
         sh 'npx snyk monitor --project-name="${IMAGE_NAME}" || true'
+        sh 'npx snyk test || true'
+        sh 'npx snyk test --severity-threshold=high'
         sh '"$SCANNER_HOME/bin/sonar-scanner" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.token="$SONAR_TOKEN"'
       }
     }
