@@ -123,6 +123,19 @@ pipeline {
       when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
         sh 'sleep 10'
+        // 1) Playwright E2E against the freshly-deployed INACTIVE environment.
+        //    Runs in a SEPARATE sh step: if any test fails this step exits
+        //    non-zero, the stage fails, and the traffic switch below never
+        //    runs — users keep the old (still-working) version.
+        //    (The API load test with k6 lives in the backend pipeline.)
+        sh '''
+          set -e
+          TARGET_PORT=$(cat target_port.txt)
+          npm ci
+          npx playwright install --with-deps chromium
+          echo "Running Playwright E2E against http://$STAGING_EC2_HOST:$TARGET_PORT"
+          E2E_BASE_URL="http://$STAGING_EC2_HOST:$TARGET_PORT" npm run test:e2e
+        '''
         
         echo "Running E2E Tests with Playwright..."
         sh """docker run --rm -v "${WORKSPACE}:/work" -w /work -e STAGING_URL="${STAGING_URL}" mcr.microsoft.com/playwright:v1.61.1-jammy /bin/bash -c "npm ci && npx playwright test tests/e2e/app.spec.ts" """
@@ -170,6 +183,12 @@ pipeline {
               docker exec proxy nginx -s reload
 EOF
           '''
+        }
+      }
+      post {
+        always {
+          junit testResults: 'playwright-report/results.xml', allowEmptyResults: true
+          archiveArtifacts artifacts: 'playwright-report/**', allowEmptyArchive: true
         }
       }
     }
