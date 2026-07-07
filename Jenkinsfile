@@ -8,6 +8,7 @@ pipeline {
   environment {
     IMAGE_NAME = 'nocryptify_frontend'
     NGINX_CONF_DIR = '/home/ubuntu/secret-notes/nginx'
+    VITE_POSTHOG_HOST = 'https://eu.i.posthog.com'
 
     STAGING_EC2_USER = "${env.STAGING_EC2_USER}"
     STAGING_EC2_HOST = "${env.EC2_HOST}"
@@ -18,6 +19,7 @@ pipeline {
     SONAR_TOKEN = credentials('sonarqube-token')
     SNYK_TOKEN = credentials('snyk-token')
     DISCORD_WEBHOOK = credentials('discord-webhook-url')
+    VITE_POSTHOG_KEY  = credentials('POSTHOG_PROJECT_KEY')
 
     SCANNER_HOME = tool 'SonarScanner'
   }
@@ -61,7 +63,10 @@ pipeline {
         }
       }
       steps {
-        sh "docker build -t ${IMAGE_NAME}:${env.GIT_COMMIT} --build-arg VITE_API_URL=${VITE_API_URL} ."
+        sh """docker build -t ${IMAGE_NAME}:${env.GIT_COMMIT} \\
+            --build-arg VITE_API_URL=${VITE_API_URL} \\
+            --build-arg VITE_POSTHOG_KEY=${VITE_POSTHOG_KEY} \\
+            --build-arg VITE_POSTHOG_HOST=${VITE_POSTHOG_HOST} ."""
       }
     }
 
