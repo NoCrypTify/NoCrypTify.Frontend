@@ -116,11 +116,13 @@ pipeline {
       when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
         sh '''
-set -e
+          set -e
           TARGET_PORT=$(cat target_port.txt)
           echo "Running Playwright E2E against http://$STAGING_EC2_HOST:$TARGET_PORT"
           
           docker run --rm \
+            --user $(id -u):$(id -g) \
+            -e HOME=/work \
             -v "${WORKSPACE}:/work" \
             -w /work \
             -e E2E_BASE_URL="http://$STAGING_EC2_HOST:$TARGET_PORT" \
@@ -183,14 +185,16 @@ EOF
 
   post {
     failure {
-      sh '''
-        if [ -n "$DISCORD_WEBHOOK" ]; then
-          curl -H "Content-Type: application/json" \
-            -X POST \
-            -d "{\\"content\\": \\"<@&1522970703245348995> ❌ **${JOB_NAME} #${BUILD_NUMBER}** failed on branch **${BRANCH_NAME}**!\\\\nDetails: ${BUILD_URL}\\"}" \
-            "$DISCORD_WEBHOOK"
-        fi
-      '''
+      node {
+        sh '''
+          if [ -n "$DISCORD_WEBHOOK" ]; then
+            curl -H "Content-Type: application/json" \
+              -X POST \
+              -d "{\\"content\\": \\"<@&1522970703245348995> ❌ **${JOB_NAME} #${BUILD_NUMBER}** failed on branch **${BRANCH_NAME}**!\\\\nDetails: ${BUILD_URL}\\"}" \
+              "$DISCORD_WEBHOOK"
+          fi
+        '''
+      }
     }
   }
 }
