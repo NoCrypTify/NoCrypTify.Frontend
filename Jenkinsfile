@@ -105,7 +105,9 @@ pipeline {
               
               docker run -d \\
                 --name $TARGET_ENV \\
+                -p $TARGET_PORT:80 \\
                 --network network \\
+                --restart unless-stopped \\
                 --restart unless-stopped \\
                 $DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:$GIT_COMMIT
             "
