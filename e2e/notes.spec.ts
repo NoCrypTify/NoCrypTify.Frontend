@@ -22,15 +22,12 @@ async function createNote(
   await page.getByPlaceholder('Title (optional)').fill(opts.title);
   await page.getByPlaceholder('Your secret content…').fill(opts.content);
   await page.getByPlaceholder('Encryption key / passphrase').fill(opts.key);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
 
   await expect(page.getByText('Note created and stored securely.')).toBeVisible();
 }
 
-async function openNote(
-  page: import('@playwright/test').Page,
-  title: string,
-): Promise<void> {
+async function openNote(page: import('@playwright/test').Page, title: string): Promise<void> {
   await page.getByRole('button', { name: title }).first().click();
   await expect(page.getByPlaceholder('Decryption key')).toBeVisible();
 }
@@ -75,12 +72,13 @@ test('rejects a note with the wrong key (Feature B — access denied)', async ({
 test('does not create a note when required fields are empty (validation)', async ({ page }) => {
   await page.goto('./');
   // Submit with empty content + key: HTML5 `required` blocks submission.
-  await page.getByRole('button', { name: 'Create' }).click();
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
 
   // The required content field is invalid and nothing was stored.
-  await expect(
-    page.getByPlaceholder('Your secret content…'),
-  ).toHaveJSProperty('validity.valid', false);
+  await expect(page.getByPlaceholder('Your secret content…')).toHaveJSProperty(
+    'validity.valid',
+    false,
+  );
   await expect(page.getByText('Note created and stored securely.')).toHaveCount(0);
 });
 
