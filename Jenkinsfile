@@ -46,6 +46,8 @@ pipeline {
         }
       }
       steps {
+        sh 'rm -rf node_modules || true'
+        
         sh 'npm ci'
         sh 'npm test -- --coverage'
       }
