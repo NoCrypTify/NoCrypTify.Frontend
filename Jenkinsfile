@@ -201,9 +201,10 @@ EOF
       node('') {
         sh '''
           if [ -n "$DISCORD_WEBHOOK" ]; then
+            FIXED_URL="http://3.215.243.214:8080/job/${JOB_NAME}/${BUILD_NUMBER}/console"
             curl -H "Content-Type: application/json" \
               -X POST \
-              -d "{\\"content\\": \\"<@&1522970703245348995> ❌ **${JOB_NAME} #${BUILD_NUMBER}** failed on branch **${BRANCH_NAME}**!\\\\nDetails: ${BUILD_URL}\\"}" \
+              -d "{\\"content\\": \\"<@&1522970703245348995> ❌ **${JOB_NAME} #${BUILD_NUMBER}** failed on branch **${BRANCH_NAME}**!\\\\nDetails: ${FIXED_URL}\\"}" \
               "$DISCORD_WEBHOOK"
           fi
         '''
