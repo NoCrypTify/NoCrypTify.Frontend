@@ -169,7 +169,7 @@ pipeline {
 
               # NGINX neu laden
               docker exec proxy nginx -s reload
-EOF
+              EOF
 
           '''
         }
@@ -185,7 +185,7 @@ EOF
 
   post {
     failure {
-      node {
+      node('') {
         sh '''
           if [ -n "$DISCORD_WEBHOOK" ]; then
             curl -H "Content-Type: application/json" \
