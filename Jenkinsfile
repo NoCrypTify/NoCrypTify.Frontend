@@ -179,6 +179,13 @@ pipeline {
 EOF
           '''
         }
+        
+        sh '''
+          echo "Deployment successful! Tagging image as stable and pushing to DockerHub..."
+          echo "$DOCKERHUB_CREDENTIALS_PSW" | docker login -u "$DOCKERHUB_CREDENTIALS_USR" --password-stdin
+          docker tag "$IMAGE_NAME:$GIT_COMMIT" "$DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:stable"
+          docker push "$DOCKERHUB_CREDENTIALS_USR/$IMAGE_NAME:stable"
+        '''
       }
       post {
         always {
