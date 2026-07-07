@@ -3,5 +3,6 @@ module.exports = {
   preset: 'ts-jest/presets/default-esm',
   testEnvironment: 'jsdom',
   extensionsToTreatAsEsm: ['.ts', '.tsx'],
-  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/tests/e2e/'],
+  // Playwright E2E specs live in ./e2e and must not be run by Jest.
+  testPathIgnorePatterns: ['/node_modules/', '/e2e/'],
 };
