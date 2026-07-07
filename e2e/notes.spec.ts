@@ -72,7 +72,7 @@ test('rejects a note with the wrong key (Feature B — access denied)', async ({
 test('does not create a note when required fields are empty (validation)', async ({ page }) => {
   await page.goto('./');
   // Submit with empty content + key: HTML5 `required` blocks submission.
-  await page.getByRole('button', { name: 'Create' }).click();
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
 
   // The required content field is invalid and nothing was stored.
   await expect(page.getByPlaceholder('Your secret content…')).toHaveJSProperty(
