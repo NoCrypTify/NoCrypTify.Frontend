@@ -115,22 +115,20 @@ pipeline {
     stage('E2E & Switch Traffic') {
       when { expression { env.GIT_BRANCH?.contains('deploy/production') } }
       steps {
-        // 1) Playwright E2E against the freshly-deployed INACTIVE environment.
-        //    Runs in a SEPARATE sh step: if any test fails this step exits
-        //    non-zero, the stage fails, and the traffic switch below never
-        //    runs — users keep the old (still-working) version.
-        //    (The API load test with k6 lives in the backend pipeline.)
         sh '''
           set -e
           TARGET_PORT=$(cat target_port.txt)
-          npm ci
-          npx playwright install --with-deps chromium
           echo "Running Playwright E2E against http://$STAGING_EC2_HOST:$TARGET_PORT"
-          E2E_BASE_URL="http://$STAGING_EC2_HOST:$TARGET_PORT" npm run test:e2e
+          
+          docker run --rm \
+            -v "${WORKSPACE}:/work" \
+            -w /work \
+            -e E2E_BASE_URL="http://$STAGING_EC2_HOST:$TARGET_PORT" \
+            -e STAGING_URL="http://$STAGING_EC2_HOST:$TARGET_PORT" \
+            mcr.microsoft.com/playwright:v1.49.1-jammy \
+            /bin/bash -c "npm ci && npm run test:e2e"
         '''
 
-        // 2) Only reached if the tests above passed: switch nginx to the new
-        //    environment and stop the old one.
         sshagent(credentials: ['app-ec2-ssh-key']) {
           sh '''
             echo "Tests successful! Swapping config on host and reloading NGINX proxy..."
